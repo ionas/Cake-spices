@@ -1,4 +1,38 @@
 <?php
+/**
+* See also: http://cakephp.lighthouseapp.com/projects/42648/tickets/102-support-for-multiple-pagination
+* 
+* Pagination request: 
+* http://www.domain.tld/profiles/view/4/paginate.shouts.sort:shout.create,desc;shout.hidden,asc/paginate.shouts.page:2/paginate.shouts.conditions:shout.date,2009-12-12%2012:12:00;shout.from_profile_id,5/paginate.buddies.page:3
+* 
+* Result:
+* Array
+* (
+*     [Shout] => Array
+*         (
+*             [sort] => Array
+*                 (
+*                     [Shout.create] => desc
+*                     [Shout.hidden] => asc
+*                 )
+* 
+*             [page] => 2
+*             [conditions] => Array
+*                 (
+*                     [Shout.date] => 2009-12-12 12:12:00
+*                     [Shout.from_profile_id] => 5
+*                 )
+* 
+*         )
+* 
+*     [Buddy] => Array
+*         (
+*             [page] => 3
+*         )
+* 
+* )
+* 
+*/
 class ExtendedPaginationComponent extends Object {
 	
 	/**
