@@ -18,8 +18,8 @@ class Base extends AppModel {
 	* 
 	*/
 	function dbTime() {
-		$timeData = $this->query('SELECT NOW()');
-		return $timeData[0][0]['NOW()'];
+		$dbTimeData = $this->query('SELECT NOW()');
+		return $dbTimeData[0][0]['NOW()'];
 	}
 	
 }
