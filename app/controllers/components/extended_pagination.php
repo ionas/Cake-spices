@@ -172,11 +172,12 @@ class ExtPaginationComponent extends Object {
 			return false;
 		} else {
 			debug($findResult);
+			// TODO is below required?
 			unset($this->_offset[$paginateKey]);
 			unset($this->_limit[$paginateKey]);
 			unset($this->_count[$paginateKey]);
 		}
-		// TODO Setup Helper here
+		// TODO Setup ExtPaginatingHelper here
 	}
 	
 	/**
@@ -295,11 +296,10 @@ class ExtPaginationComponent extends Object {
 		foreach ($values as $key => $value) {
 			// If if a value holds key+value, like 'pagination.comments.sort:comment.date,asc'
 			if (strpos($value, ',') !== false) {
-				debug($value);
 				list($subkey, $subvalue) = explode(',', $value);
 				$subkey = ucfirst(strtolower($subkey)); // 'Modelalias.fieldname'
 				$values[$subkey] = $subvalue;
-				unset($values[$key]);
+				unset($values[$key]); // TODO is this required?
 			} else { // If key just holds a value (like pagination.comments.page:2)
 				$values = $value;
 			}
