@@ -15,24 +15,22 @@
 * See also: http://cakephp.lighthouseapp.com/projects/42648/tickets/102-support-for-multiple-pagination
 * 
 * Example pagination request: 
-* http://www.domain.tld/profiles/view/4/paginate.shouts.sort:shout.create,desc;shout.hidden,asc/paginate.shouts.page:2/paginate.shouts.conditions:shout.date,2009-12-12%2012:12:00;shout.from_profile_id,5/paginate.buddies.page:3
-* 
-* ExtendedPaginationComponent::_buildPaginationOptions() result:
+* http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,asc;user.is_hidden,asc/paginate.shouts.page:4/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3* 
+* ExtendedPaginationComponent::_passedArgsAsOptions() result:
 * Array
 * (
 *     [Shout] => Array
 *         (
 *             [sort] => Array
 *                 (
-*                     [Shout.create] => desc
-*                     [Shout.hidden] => asc
+*                     [Shout.created] => asc
+*                     [User.is_hidden] => asc
 *                 )
 * 
-*             [page] => 2
+*             [page] => 4
 *             [conditions] => Array
 *                 (
-*                     [Shout.date] => 2009-12-12 12:12:00
-*                     [Shout.from_profile_id] => 5
+*                     [Shout.is_hidden] => 0
 *                 )
 * 
 *         )
@@ -113,7 +111,7 @@ class ExtPaginationComponent extends Object {
 	 * @access public
 	 */
 	function startup(&$Controller) {
-		$this->options = $this->_getPassedArgsOptions($Controller->passedArgs);
+		$this->options = $this->_passedArgsAsOptions($Controller->passedArgs);
 	}
 	
 	/**
@@ -153,30 +151,30 @@ class ExtPaginationComponent extends Object {
 	}
 	
 	// http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,desc;user.is_hidden,asc/paginate.shouts.page:2/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3
-	function count($modelname, $findResult, $pageSize = null) {
+	function count($paginateKey, $findResult, $pageSize = null) {
 		if ($pageSize == null) {
 			$pageSize = $this->_settings['pageSize'];
 		}
 		$offset = '0';
-		if (isset($this->options[$modelname]['page'])) {
-			$offset = ($this->options[$modelname]['page'] - 1) * $pageSize;
+		if (isset($this->options[$paginateKey]['page'])) {
+			$offset = ($this->options[$paginateKey]['page'] - 1) * $pageSize;
 		}
-		$this->_offset[$modelname] = $offset;
-		$this->_limit[$modelname] = $pageSize;
-		$this->_count[$modelname] = ceil($findResult / $pageSize);
+		$this->_offset[$paginateKey] = $offset;
+		$this->_limit[$paginateKey] = $pageSize;
+		$this->_count[$paginateKey] = ceil($findResult / $pageSize);
 	}
 	
-	function paginate($modelname, $findResult) {
-		if (!isset($this->_count[$modelname])) {
+	function paginate($paginateKey, $findResult) {
+		if (!isset($this->_count[$paginateKey])) {
 			trigger_error(
 				sprintf('ExtPagination::count() must be called before ExtPagination::paginate()'),
 				E_USER_WARNING);
 			return false;
 		} else {
 			debug($findResult);
-			unset($this->_offset[$modelname]);
-			unset($this->_limit[$modelname]);
-			unset($this->_count[$modelname]);
+			unset($this->_offset[$paginateKey]);
+			unset($this->_limit[$paginateKey]);
+			unset($this->_count[$paginateKey]);
 		}
 		// TODO Setup Helper here
 	}
@@ -188,18 +186,18 @@ class ExtPaginationComponent extends Object {
 	* @return array Model::find() options
 	* @access public
 	*/
-	function filter($modelname, $options = array()) {
+	function filter($paginateKey, $options = array()) {
 		// Collect touched modelfields
 		$modelfields = array();
-		if (isset($this->options[$modelname])) {
-			if (isset($this->options[$modelname]['conditions'])) {
-				foreach($this->options[$modelname]['conditions'] as $modelfield => $value) {
+		if (isset($this->options[$paginateKey])) {
+			if (isset($this->options[$paginateKey]['conditions'])) {
+				foreach ($this->options[$paginateKey]['conditions'] as $modelfield => $value) {
 					list($currentModelname, $fieldname) = explode('.', $modelfield);
 					$modelfields[$currentModelname][] = $fieldname;
 				}
 			}
-			if (isset($this->options[$modelname]['sort'])) {
-				foreach ($this->options[$modelname]['sort'] as $modelfield => $value) {
+			if (isset($this->options[$paginateKey]['sort'])) {
+				foreach ($this->options[$paginateKey]['sort'] as $modelfield => $value) {
 					list ($currentModelname, $fieldname) = explode('.', $modelfield);
 					$modelfields[$currentModelname][] = $fieldname;
 				}
@@ -216,31 +214,31 @@ class ExtPaginationComponent extends Object {
 				foreach ($modelfields[$currentModelname] as $index => $fieldname) {
 					if (!isset($currentModel->_schema[$fieldname])) {
 						unset($modelfields[$currentModelname][$index]);
-						unset($this->options[$modelname]['sort'][$currentModelname . '.' . $fieldname]);
+						unset($this->options[$paginateKey]['sort'][$currentModelname . '.' . $fieldname]);
 					}
 				}
 			} else {
 				unset($modelfields[$currentModelname]);
-				unset($this->options[$modelname]['sort'][$currentModelname . '.' . $fieldname]);
+				unset($this->options[$paginateKey]['sort'][$currentModelname . '.' . $fieldname]);
 			}
 		}
 		
 		// Merge additional conditions
 		$paginateOptions = array();
-		if (isset($this->options[$modelname]['conditions'])) {
-			$paginateOptions['conditions'] = $this->options[$modelname]['conditions'];
+		if (isset($this->options[$paginateKey]['conditions'])) {
+			$paginateOptions['conditions'] = $this->options[$paginateKey]['conditions'];
 		}
-		if (isset($this->options[$modelname]['sort'])) {
+		if (isset($this->options[$paginateKey]['sort'])) {
 			// TODO stringify? 'Model.fieldname ASC' instead of array('Model.fieldname' => 'asc)!)
-			$paginateOptions['order'] = $this->options[$modelname]['sort'];
+			$paginateOptions['order'] = $this->options[$paginateKey]['sort'];
 		}
 		// Get limit from count();
 		// Still broken, noone knows why though.
-		if (isset($this->_limit[$modelname])) {
-			$paginateOptions['limit'] = $this->_limit[$modelname];
+		if (isset($this->_limit[$paginateKey])) {
+			$paginateOptions['limit'] = $this->_limit[$paginateKey];
 		}
-		if (isset($this->_offset[$modelname])) {
-			$paginateOptions['offset'] = $this->_offset[$modelname];
+		if (isset($this->_offset[$paginateKey])) {
+			$paginateOptions['offset'] = $this->_offset[$paginateKey];
 		}
 		if (!empty($options)) {
 			$options = array_merge_recursive($paginateOptions, $options);
@@ -255,14 +253,14 @@ class ExtPaginationComponent extends Object {
 	* @return array Pagination filter
 	* @access private
 	*/
-	function _getPassedArgsOptions($passedArgs) {
+	function _passedArgsAsOptions($passedArgs) {
 		$paginationParams = array();
 		foreach ($passedArgs as $key => $value) {
 			// If pagination relevant parameter
 			if (strpos($key, $this->_settings['prefix']) === 0) {
 				// Merge parameter into pagination conditions
 				$paginationParams = array_merge_recursive($paginationParams, 
-					$this->_buildParam($key, $this->_buildValues($value)));
+					$this->_buildOption($key, $this->_buildOptionValues($value)));
 			}
 		}
 		return $paginationParams;
@@ -274,18 +272,15 @@ class ExtPaginationComponent extends Object {
 	* @return array pagination parameter
 	* @access private
 	*/
-	function _buildParam($key, $value) {
-		// Filter paginator param prefix
+	function _buildOption($key, $value) {
+		// Filter all params for pagination passedArgs (for instance 'paginate.') prefix
 		$key = explode($this->_settings['prefix'], $key);
-		// Build param
 		if (!isset($key[1])) {
-			return false;
+			return null;
 		}
-		$key = explode('.', $key[1]); // use list
-		$modelname = Inflector::classify($key[0]);
-		$filter = $key[1];
-		// Save param
-		$param = array($modelname => array($filter => $value));
+		// Build param
+		list($paginationKey, $filter) = explode('.', $key[1]);
+		$param = array(Inflector::classify($paginationKey) => array($filter => $value));
 		return $param;
 	}
 	
@@ -294,16 +289,17 @@ class ExtPaginationComponent extends Object {
 	* @return array pagination value
 	* @access private
 	*/
-	function _buildValues($values) {
+	function _buildOptionValues($values) {
 		// Split multiple values
 		$values = explode(';', $values);
 		foreach ($values as $key => $value) {
-			// If key holds key,value (like pagination.comments.sort:comment.date,asc)
+			// If if a value holds key+value, like 'pagination.comments.sort:comment.date,asc'
 			if (strpos($value, ',') !== false) {
-				$value = explode(',', $value);
-				$value[0] = ucfirst(strtolower($value[0])); // 'Modelalias.fieldname'
+				debug($value);
+				list($subkey, $subvalue) = explode(',', $value);
+				$subkey = ucfirst(strtolower($subkey)); // 'Modelalias.fieldname'
+				$values[$subkey] = $subvalue;
 				unset($values[$key]);
-				$values[$value[0]] = $value[1];
 			} else { // If key just holds a value (like pagination.comments.page:2)
 				$values = $value;
 			}
