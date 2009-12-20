@@ -1,7 +1,7 @@
 <?php
 /**
 * 
-* Current Usage:
+* Current Usage (In your Controller's Action):
 * 
 * $this->ExtPagination->count(
 * 	'Shout', $this->Profile->Shout->find('count', $this->ExtPagination->filter('Shout'))
@@ -15,7 +15,7 @@
 * See also: http://cakephp.lighthouseapp.com/projects/42648/tickets/102-support-for-multiple-pagination
 * 
 * Example pagination request: 
-* http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,asc;user.is_hidden,asc/paginate.shouts.page:4/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3* 
+* http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,asc;user.is_hidden,asc/paginate.shouts.page:4/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3 
 * ExtendedPaginationComponent::_passedArgsAsOptions() result:
 * Array
 * (
@@ -70,25 +70,11 @@ class ExtPaginationComponent extends Object {
 	var $C;
 	
 	/**
-	* Holds numbers of items to paginate
+	* Holds runtime count, limit, offset, pagesize
 	* 
 	* @access private
 	*/
-	var $_count = array();
-
-	/**
-	* Holds the paginations limits
-	* 
-	* @access private
-	*/
-	var $_limit = array();
-	
-	/**
-	* Holds the pagiations offsets
-	* 
-	* @access private
-	*/
-	var $_offset = array();
+	var $_runtime = array();
 	
 	/**
 	 * Initialize component
@@ -152,30 +138,48 @@ class ExtPaginationComponent extends Object {
 	
 	// http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,desc;user.is_hidden,asc/paginate.shouts.page:2/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3
 	function count($paginateKey, $findResult, $pageSize = null) {
+		if (!isset($this->options[$paginateKey]['page'])) {
+			$this->options[$paginateKey]['page'] = 1;
+		}
 		if ($pageSize == null) {
 			$pageSize = $this->_settings['pageSize'];
 		}
-		$offset = '0';
-		if (isset($this->options[$paginateKey]['page'])) {
-			$offset = ($this->options[$paginateKey]['page'] - 1) * $pageSize;
-		}
-		$this->_offset[$paginateKey] = $offset;
-		$this->_limit[$paginateKey] = $pageSize;
-		$this->_count[$paginateKey] = ceil($findResult / $pageSize);
+		$offset = ($this->options[$paginateKey]['page'] - 1) * $pageSize;
+		$this->_runtime[$paginateKey]['offset'] = $offset;
+		$this->_runtime[$paginateKey]['limit'] = $pageSize;
+		$this->_runtime[$paginateKey]['count'] = $findResult;
+		$this->_runtime[$paginateKey]['pageCount'] = ceil($findResult / $pageSize);
 	}
 	
-	function paginate($paginateKey, $findResult) {
-		if (!isset($this->_count[$paginateKey])) {
+	function paginate($paginateKey, $findResult, $options = array()) {
+		if (!isset($this->_runtime[$paginateKey])) {
 			trigger_error(
 				sprintf('ExtPagination::count() must be called before ExtPagination::paginate()'),
 				E_USER_WARNING);
 			return false;
 		} else {
-			debug($findResult);
-			// TODO is below required?
-			unset($this->_offset[$paginateKey]);
-			unset($this->_limit[$paginateKey]);
-			unset($this->_count[$paginateKey]);
+			$page = $this->options[$paginateKey]['page'];
+			$count = $this->_runtime[$paginateKey]['count'];
+			$limit = $this->_runtime[$paginateKey]['limit'];
+			$pageCount = $this->_runtime[$paginateKey]['pageCount'];
+			$paging = array(
+				'page'		=> $page,
+				'current'	=> count($findResult),
+				'count'		=> $count,
+				'prevPage'	=> ($page > 1),
+				'nextPage'	=> ($count > ($page * $limit)),
+				'pageCount'	=> $pageCount,
+			);
+			// Autoload ExtPaginatorHelper
+			$this->C->params['extPaging'][$paginateKey] = $paging;
+			if (!in_array('ExtPaginator', $this->C->helpers)
+				&& !array_key_exists('ExtPaginator', $this->C->helpers)
+			) {
+				$this->C->helpers[] = 'ExtPaginator';
+			}
+			// Clean up component for next usage
+			unset($this->_runtime[$paginateKey]);
+			return $findResult;
 		}
 		// TODO Setup ExtPaginatingHelper here
 	}
@@ -187,12 +191,13 @@ class ExtPaginationComponent extends Object {
 	* @return array Model::find() options
 	* @access public
 	*/
-	function filter($paginateKey, $options = array()) {
+	function filter($paginateKey, $options = array(), $whiteList = array()) {
 		// Collect touched modelfields
 		$modelfields = array();
 		if (isset($this->options[$paginateKey])) {
 			if (isset($this->options[$paginateKey]['conditions'])) {
 				foreach ($this->options[$paginateKey]['conditions'] as $modelfield => $value) {
+					// TODO: treat $whiteLists
 					list($currentModelname, $fieldname) = explode('.', $modelfield);
 					$modelfields[$currentModelname][] = $fieldname;
 				}
@@ -204,22 +209,23 @@ class ExtPaginationComponent extends Object {
 				}
 			}
 		}
-		// Check if the models themselves and the modelfields exists
+		// Check if the models themselves and the modelfields exists. This is required because
+		// the external user can specify the fields at free will
 		foreach (array_keys($modelfields) as $currentModelname) {
 			if (class_exists($currentModelname)) {
 				$currentModel = ClassRegistry::init($currentModelname);
 				// TODO: Check if the models exist in the find call context (assoc, containable, join)
-				// else: huge SQL errors appear
-				// http://www.domain.dev/profiles/view/4/paginate.shouts.sort:shout.created,desc;user.id,asc/paginate.shouts.page:2/paginate.shouts.conditions:shout.is_hidden,0;shout.from_profile_id,5/paginate.buddies.page:3
-				// Also see current Controller::paginate()
+					// Else: huge SQL errors!
+					// Example: http://www.sna.dev/profiles/view/4/paginate.shouts.sort:shout.created,asc;shout.profile_id,desc;user.is_hidden,asc;user.id,asc/paginate.shouts.page:4/paginate.shouts.conditions:shout.is_hidden,0/paginate.buddies.page:3
+					// Also see current Controller::paginate(
+				
+				// Check if the field exists in the given model
 				foreach ($modelfields[$currentModelname] as $index => $fieldname) {
 					if (!isset($currentModel->_schema[$fieldname])) {
-						unset($modelfields[$currentModelname][$index]);
 						unset($this->options[$paginateKey]['sort'][$currentModelname . '.' . $fieldname]);
 					}
 				}
 			} else {
-				unset($modelfields[$currentModelname]);
 				unset($this->options[$paginateKey]['sort'][$currentModelname . '.' . $fieldname]);
 			}
 		}
@@ -230,16 +236,14 @@ class ExtPaginationComponent extends Object {
 			$paginateOptions['conditions'] = $this->options[$paginateKey]['conditions'];
 		}
 		if (isset($this->options[$paginateKey]['sort'])) {
-			// TODO stringify? 'Model.fieldname ASC' instead of array('Model.fieldname' => 'asc)!)
-			$paginateOptions['order'] = $this->options[$paginateKey]['sort'];
+			foreach ($this->options[$paginateKey]['sort'] as $key => $value) {
+				$paginateOptions['order'][] = $key . ' ' . strtoupper($value);
+			}
 		}
-		// Get limit from count();
-		// Still broken, noone knows why though.
-		if (isset($this->_limit[$paginateKey])) {
-			$paginateOptions['limit'] = $this->_limit[$paginateKey];
-		}
-		if (isset($this->_offset[$paginateKey])) {
-			$paginateOptions['offset'] = $this->_offset[$paginateKey];
+		// Set limit, offset and alike (generated by ExtPagination::count())
+		if (!empty($this->_runtime[$paginateKey])) {
+			$paginateOptions['limit'] = $this->_runtime[$paginateKey]['limit'];
+			$paginateOptions['offset'] = $this->_runtime[$paginateKey]['offset'];
 		}
 		if (!empty($options)) {
 			$options = array_merge_recursive($paginateOptions, $options);
@@ -293,18 +297,18 @@ class ExtPaginationComponent extends Object {
 	function _buildOptionValues($values) {
 		// Split multiple values
 		$values = explode(';', $values);
+		$options = null;
 		foreach ($values as $key => $value) {
 			// If if a value holds key+value, like 'pagination.comments.sort:comment.date,asc'
 			if (strpos($value, ',') !== false) {
 				list($subkey, $subvalue) = explode(',', $value);
 				$subkey = ucfirst(strtolower($subkey)); // 'Modelalias.fieldname'
-				$values[$subkey] = $subvalue;
-				unset($values[$key]); // TODO is this required?
+				$options[$subkey] = $subvalue;
 			} else { // If key just holds a value (like pagination.comments.page:2)
-				$values = $value;
+				$options = $value;
 			}
 		}
-		return $values;
+		return $options;
 	}
 	
 }
